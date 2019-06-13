@@ -1,1 +1,1 @@
-# code in the beginning stages
+# Python projects
