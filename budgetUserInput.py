@@ -1,17 +1,14 @@
 #!/usr/bin/python3
 
-import csv, re, openpyxl, json
-import os
-import sys
+import csv, re, json, os, argparse
 
-def main():
+def main(username):
 
-	username = input("user name: ")
 	fileName = f'{username}_budgetSettings.json'
 
 	try:
-		with open(f'userSettings/{fileName}') as f_obj:
-			print(f"Welcome back, {username}.  Here are your budget categories:")
+		with open(os.path.join("userSettings", fileName)) as f_obj:
+			print(f"Welcome, {username}.  Here are your budget categories:")
 			settings = json.load(f_obj)
 			for category, transaction in settings.items():
 				print(f'\t{category}')
@@ -22,19 +19,35 @@ def main():
 
 		""" Take updated settings from newTransactions function 
 			and save to user settings json file """  
-		with open(f'userSettings/{fileName}', 'w') as f_obj:		
+		with open(os.path.join("userSettings", fileName), 'w') as f_obj:		
 			json.dump(newSettings, f_obj, indent=2, sort_keys=True)
 
-
-		budgetDict = calcBudget(settings, fileName, csvFile)	
+		withdrawDict = calcWithdrawals(settings, fileName, csvFile)
+		deposit = calcDeposits(settings, fileName, csvFile)	
+		budget = csvBudget(deposit, withdrawDict)
 
 	except FileNotFoundError:
-		print(f"Hello, {username}!  Let's make some budget catagories.")
+		username = newUser()
+		fileName = f'{username}_budgetSettings.json'
+		print(f"Hello, {username}!  Let's make some budget categories.")
 		newCategories(username, fileName)
-t
+		main(username)
+
+
+def newUser():
+	username = input('Create a username: ')
+	names = os.listdir('userSettings')
+	
+	for name in names:
+		exists = re.match(r'(.+)_budgetSettings.json', name)
+		if exists.group(1) == username:
+			print(f'{username} already exists. Please choose another: ')
+			return newUser()
+	return username
+
 
 """ Add up all the withdrawal values from the csv file and store in a dictionary. """
-def calcBudget(settings, fileName, csvFile):
+def calcWithdrawals(settings, fileName, csvFile):
 	amount = 0
 	withdrawal = {}
 
@@ -46,24 +59,45 @@ def calcBudget(settings, fileName, csvFile):
 			for line in csv_reader:
 				for transaction in transactions:
 					if transaction.lower() in (line['transaction']).lower():
-						# print(line['withdrawal'])
+						# print(line['withdrawal'] + ' ' + line['date'])
 						withdrawalRegex = moneyRegex(line['withdrawal'])
 						amount += float(withdrawalRegex)
 		withdrawal[category.strip()] = amount
 		amount = 0
 		# print('\n')
 	print(withdrawal)
+	return withdrawal
 
+""" Calculate deposits from csv file. """
+def calcDeposits(settings, fielName, csvFile):
+	amount = 0
+
+	with open(csvFile) as csv_budget:
+		csv_reader = csv.DictReader(csv_budget)
+		for line in csv_reader:
+			if line['deposit'] != '':
+				depositRegex = moneyRegex(line['deposit'])
+				amount += float(depositRegex)
+	print(amount)
+	return amount
+
+def csvBudget(deposit, withdrawDict):
+	with open('budget.csv', 'w') as budgetFile:
+		csvWriter = csv.writer(budgetFile)
+
+		for key, value in withdrawDict.items():
+			csvWriter.writerow([key, value])
+
+		csvWriter.writerow(['Deposit', deposit])
 
 """ Set up budget categories for a first time user """
 def newCategories(username, fileName):
 	withdrawDict = {}
 	transactions = []
 
-	with open(f'userSettings/{fileName}', 'a') as f_obj:
+	with open(os.path.join('userSettings', fileName), 'a') as f_obj:
 
 		categories = input("Enter categories separated by a comma: ").split(',')
-		# print(categories)
 		for category in categories:
 			withdrawDict[category.strip()] = transactions
 
@@ -74,7 +108,6 @@ def newCategories(username, fileName):
 	to be written to the json user settings file. """
 def newTransactions(settings, fileName, csvFile):
 	json_values = []
-	# csvFile = csvUserFile()
 
 	with open(csvFile) as csv_budget:
 		csv_reader = csv.DictReader(csv_budget) 
@@ -86,16 +119,26 @@ def newTransactions(settings, fileName, csvFile):
 		for line in csv_reader:
 			if line['deposit']	== '':
 				if line['transaction'] not in json_values:
-					print("********New Transaction Menu********")
+					print("\n********New Transaction Menu********")
 					print(f'\nNot Found: {line["transaction"]}, {line["withdrawal"]}')
 					print('Where should this transaction go?')
-					for key, values in settings.items():
-						print(f'\t{key.upper()}')
-					choice = input('Please type the exact category: ')
-					for key, values in settings.items():
-						if choice.lower() == key.lower():
+					for index, key in enumerate(settings):
+						print(f'\t{index}) {key.upper()}')
+
+					try:	
+						choice = int(input('Please enter the number for the category: '))
+					except ValueError:
+						print(f"\nThat's not a valid option, please enter a number!")
+						return newTransactions(settings, fileName, csvFile)		
+
+					for index, key in enumerate(settings):
+						if 0 > choice or choice > len(settings):
+							print(f'\n{choice} is not a valid option, try again!')
+							return newTransactions(settings, fileName, csvFile)
+						if choice == index:
 							json_values.append(line['transaction'])
 							settings[key].append(line['transaction'])
+					print(settings)
 	return settings
 
 """ Function to remove money symbols """
@@ -110,16 +153,28 @@ def csvUserFile():
 	for filename in os.listdir('.'):
 		if filename.endswith('.csv'):
 			csvFiles.append(filename)
-			csvFiles.sort(key = str.lower)
-	for file in csvFiles:
-		print(f'\t{file}')
+	
+	csvFiles.sort(key = str.lower)
+	for index, file in enumerate(csvFiles):
+		print(f'\t{index}) {file}')
 
-	csvBudgetFile = input('\nWhich csv budget file do you wish to use? ')
-	return csvBudgetFile
+	try:	
+		choice = int(input('\nWhich csv budget file do you wish to use? '))
+	except ValueError:
+		print(f"\nThat's not a valid option, please enter a number!")
+		return csvUserFile()
+
+	if 0 > choice or choice >= len(csvFiles):
+		print(f'\n{choice} is not a valid option, try again!')
+		return csvUserFile()
+	return csvFiles[choice]
 
 """ TODO: Add all transactions from the csvFile that appear between the json file """
 def csvAddTransactions():
 	pass
 
 if __name__ == '__main__':
-    main()
+	parser = argparse.ArgumentParser(description='Budget organizer')
+	parser.add_argument('-u', '--username', metavar='', help='An existing user')
+	args = parser.parse_args()
+	main(args.username)
